@@ -1,0 +1,382 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Desert Dash</title>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=Rubik&display=swap');
+  * {
+    box-sizing: border-box;
+  }
+  body {
+    margin: 0;
+    background: linear-gradient(to bottom, #f7d49d 0%, #f8e4b6 100%);
+    font-family: 'Rubik', sans-serif;
+    display: flex;
+    flex-direction: column;
+    height: 100vh;
+    overflow: hidden;
+    user-select: none;
+  }
+  #homeScreen, #gameScreen {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+  }
+  #homeScreen {
+    background: #fbbf24;
+    color: #3b1d00;
+  }
+  #homeScreen h1 {
+    font-size: 3rem;
+    margin-bottom: 1rem;
+  }
+  #startBtn {
+    font-size: 1.5rem;
+    padding: 1rem 2rem;
+    border: none;
+    background: #7c2d12;
+    color: #fff;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.3s;
+    user-select: none;
+  }
+  #startBtn:hover {
+    background: #a45015;
+  }
+  #gameScreen {
+    position: relative;
+    background: linear-gradient(to top, #e8cfa2, #fffbde);
+    overflow: hidden;
+    display: none;
+  }
+  #scoreboard {
+    position: absolute;
+    top: 12px;
+    left: 12px;
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: #3b1d00;
+    text-shadow: 1px 1px 1px #fff;
+    z-index: 10;
+  }
+  #highscoreboard {
+    position: absolute;
+    top: 12px;
+    right: 12px;
+    font-weight: 700;
+    font-size: 1.2rem;
+    color: #3b1d00;
+    text-shadow: 1px 1px 1px #fff;
+    z-index: 10;
+  }
+  #gameCanvas {
+    background: #f7d49d;
+    display: block;
+    margin: auto;
+    border: 3px solid #7c2d12;
+    border-radius: 12px;
+    touch-action: none;
+    width: 100vw;
+    max-width: 700px;
+    height: 300px;
+  }
+  #groundLine {
+    position: absolute;
+    bottom: 60px;
+    width: 100%;
+    height: 5px;
+    background: #7c2d12;
+    z-index: 5;
+  }
+</style>
+</head>
+<body>
+
+<!-- Home Screen -->
+<div id="homeScreen">
+  <h1>Desert Dash</h1>
+  <button id="startBtn">Start Game</button>
+  <p style="margin-top: 1rem; font-size: 1rem; color:#3b1d00;">Tap the cowboy 🤠 to jump over cactuses 🌵 and collect balloons 🎈 to fly!</p>
+</div>
+
+<!-- Game Screen -->
+<div id="gameScreen">
+  <div id="scoreboard">Score: 0</div>
+  <div id="highscoreboard">High Score: 0</div>
+  <canvas id="gameCanvas" width="700" height="300"></canvas>
+  <div id="groundLine"></div>
+</div>
+
+<script>
+document.addEventListener('DOMContentLoaded', () => {
+  const startBtn = document.getElementById('startBtn');
+  const homeScreen = document.getElementById('homeScreen');
+  const gameScreen = document.getElementById('gameScreen');
+  const canvas = document.getElementById('gameCanvas');
+  const ctx = canvas.getContext('2d');
+  const scoreboard = document.getElementById('scoreboard');
+  const highscoreboard = document.getElementById('highscoreboard');
+
+  const groundHeight = 60;
+  const gameSpeed = 5;
+  const balloonDuration = 1900; // balloon flying time in ms
+  const jumpAirTime = 600; // jump airtime in ms
+
+  // Player object
+  const player = {
+    x: 50,
+    y: 0,
+    width: 40,
+    height: 60,
+    onGround: false,
+    flying: false,
+    flyTimer: 0,
+    jumping: false,
+    jumpTimer: 0
+  };
+
+  let cactuses = [];
+  let balloons = [];
+  let score = 0;
+  let highScore = 0;
+  let running = false;
+  let lastTime = 0;
+  let spawnTimer = 0;
+  let spawnInterval = 1500;
+
+  // Adjust canvas size to fit screen width
+  function resizeCanvas() {
+    const maxWidth = 700;
+    let width = window.innerWidth;
+    if (width > maxWidth) width = maxWidth;
+    canvas.style.width = width + "px";
+  }
+  resizeCanvas();
+  window.addEventListener('resize', resizeCanvas);
+
+  // Load high score from localStorage
+  function loadHighScore() {
+    const saved = localStorage.getItem('desertDashHighScore');
+    if (saved) highScore = parseInt(saved, 10);
+    highscoreboard.textContent = `High Score: ${highScore}`;
+  }
+  loadHighScore();
+
+  function saveHighScore() {
+    localStorage.setItem('desertDashHighScore', highScore);
+  }
+
+  function resetGame() {
+    player.y = canvas.height - groundHeight - player.height;
+    player.onGround = true;
+    player.flying = false;
+    player.flyTimer = 0;
+    player.jumping = false;
+    player.jumpTimer = 0;
+    cactuses = [];
+    balloons = [];
+    score = 0;
+    scoreboard.textContent = `Score: ${score}`;
+    spawnTimer = 0;
+  }
+
+  function spawnCactus() {
+    const size = 40 + Math.random() * 20;
+    cactuses.push({
+      x: canvas.width + size,
+      y: canvas.height - groundHeight - size,
+      width: size * 0.6,
+      height: size
+    });
+  }
+
+  function spawnBalloon() {
+    const size = 30;
+    balloons.push({
+      x: canvas.width + size,
+      y: canvas.height - groundHeight - size - 10,
+      width: size,
+      height: size
+    });
+  }
+
+  function drawPlayer() {
+    ctx.font = `${player.height}px serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText('🤠', player.x, player.y);
+  }
+
+  function drawCactus(c) {
+    ctx.font = `${c.height}px serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText('🌵', c.x, c.y);
+  }
+
+  function drawBalloon(b) {
+    ctx.font = `${b.height}px serif`;
+    ctx.textBaseline = 'top';
+    ctx.fillText('🎈', b.x, b.y);
+  }
+
+  function checkCollision(rect1, rect2) {
+    return rect1.x < rect2.x + rect2.width &&
+           rect1.x + rect1.width > rect2.x &&
+           rect1.y < rect2.y + rect2.height &&
+           rect1.y + rect1.height > rect2.y;
+  }
+
+  function gameLoop(timestamp) {
+    if (!running) return;
+
+    if (!lastTime) lastTime = timestamp;
+    const delta = timestamp - lastTime;
+    lastTime = timestamp;
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    spawnTimer += delta;
+    if (spawnTimer > spawnInterval) {
+      spawnTimer = 0;
+      if (Math.random() < 0.7) {
+        spawnCactus();
+      } else {
+        spawnBalloon();
+      }
+    }
+
+    // Update player position
+    if (player.flying) {
+      player.flyTimer -= delta;
+      player.y = canvas.height - groundHeight - player.height - 80;
+      if (player.flyTimer <= 0) {
+        player.flying = false;
+        player.flyTimer = 0;
+        player.y = canvas.height - groundHeight - player.height;
+        player.onGround = true;
+      }
+    } else if (player.jumping) {
+      player.jumpTimer += delta;
+      // Fixed jump height for airtime duration
+      player.y = canvas.height - groundHeight - player.height - 80;
+      if (player.jumpTimer >= jumpAirTime) {
+        player.jumping = false;
+        player.jumpTimer = 0;
+        player.y = canvas.height - groundHeight - player.height;
+        player.onGround = true;
+      }
+    } else {
+      player.y = canvas.height - groundHeight - player.height;
+      player.onGround = true;
+    }
+
+    // Move obstacles
+    cactuses.forEach(c => c.x -= gameSpeed);
+    balloons.forEach(b => b.x -= gameSpeed);
+
+    // Remove offscreen obstacles
+    cactuses = cactuses.filter(c => c.x + c.width > 0);
+    balloons = balloons.filter(b => b.x + b.width > 0);
+
+    // Collision detection with cactuses (only if not flying or jumping)
+    if (!player.flying && !player.jumping) {
+      for (const c of cactuses) {
+        if (checkCollision(player, c)) {
+          running = false;
+          saveIfHighScore();
+          showGameOver();
+          return;
+        }
+      }
+    }
+
+    // Check balloon pickup
+    for (let i = 0; i < balloons.length; i++) {
+      if (checkCollision(player, balloons[i])) {
+        player.flying = true;
+        player.flyTimer = balloonDuration;
+        balloons.splice(i, 1);
+        break;
+      }
+    }
+
+    // Increase score
+    score += delta * 0.01;
+    scoreboard.textContent = `Score: ${Math.floor(score)}`;
+
+    // Draw player
+    drawPlayer();
+
+    // Draw balloon attached to player if flying
+    if (player.flying) {
+      const balloonX = player.x + player.width - 10;
+      const balloonY = player.y - 30;
+      ctx.font = `40px serif`;
+      ctx.textBaseline = 'top';
+      ctx.fillText('🎈', balloonX, balloonY);
+    }
+
+    // Draw obstacles
+    cactuses.forEach(drawCactus);
+    balloons.forEach(drawBalloon);
+
+    requestAnimationFrame(gameLoop);
+  }
+
+  function saveIfHighScore() {
+    if (score > highScore) {
+      highScore = Math.floor(score);
+      highscoreboard.textContent = `High Score: ${highScore}`;
+      saveHighScore();
+    }
+  }
+
+  function showGameOver() {
+    setTimeout(() => {
+      alert(`Game Over! Your score: ${Math.floor(score)}\nHigh Score: ${highScore}`);
+      gameScreen.style.display = 'none';
+      homeScreen.style.display = 'flex';
+    }, 100);
+  }
+
+  // Jump on tap/click
+  function jump() {
+    if (player.onGround && !player.flying && !player.jumping) {
+      player.jumping = true;
+      player.jumpTimer = 0;
+      player.onGround = false;
+    }
+  }
+
+  // Listen for clicks/taps on the canvas to jump
+  canvas.addEventListener('click', jump);
+  canvas.addEventListener('touchstart', e => {
+    e.preventDefault();
+    jump();
+  }, { passive: false });
+
+  // Disable keyboard jump for now
+  // window.addEventListener('keydown', e => {
+  //   if (e.code === 'Space' || e.code === 'ArrowUp') {
+  //     e.preventDefault();
+  //     jump();
+  //   }
+  // });
+
+  startBtn.addEventListener('click', () => {
+    homeScreen.style.display = 'none';
+    gameScreen.style.display = 'flex';
+    resetGame();
+    running = true;
+    lastTime = 0;
+    requestAnimationFrame(gameLoop);
+  });
+});
+</script>
+
+</body>
+</html>
